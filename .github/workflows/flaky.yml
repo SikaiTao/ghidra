@@ -20,21 +20,25 @@ jobs:
           fetch-depth: 0
 
       ####################################################
-      # Setup JDK
+      # Setup JDK (MD says JDK 11 minimum, but safe 11/17)
       ####################################################
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '11'
+
+      ####################################################
+      # Install Gradle (IMPORTANT: system gradle, not wrapper)
+      ####################################################
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       ####################################################
       # Prepare commits
       ####################################################
       - name: Prepare commits
         run: |
-          cd $GITHUB_WORKSPACE
-
           TARGET=deec8bcf06803dcd08d22683354692c06530e468
 
           git fetch --all --tags
@@ -49,39 +53,26 @@ jobs:
           echo "PARENT=$PARENT"
 
       ####################################################
-      # DEBUG (VERY IMPORTANT)
-      ####################################################
-      - name: Debug
-        run: |
-          cd $GITHUB_WORKSPACE
-          pwd
-          ls -lah
-          find . -name gradlew
-
-      ####################################################
       # ================= PARENT =================
       ####################################################
 
-      - name: Parent build + test
+      - name: Build parent
         run: |
-          cd $GITHUB_WORKSPACE
-
           git checkout $PARENT
 
-          chmod +x ./gradlew
+          gradle -I gradle/support/fetchDependencies.gradle init
 
-          ./gradlew -I gradle/support/fetchDependencies.gradle \
-            -DhideDownloadProgress -DnoEclipse
+          gradle buildGhidra
 
-          ./gradlew buildGhidra --parallel
-
+      - name: Run parent tests
+        run: |
           mkdir -p results/parent
+          git checkout $PARENT
 
           for i in {1..3}; do
             echo "PARENT RUN $i"
 
-            ./gradlew test --no-daemon \
-              > results/parent/run_$i.log 2>&1
+            gradle test > results/parent/run_$i.log 2>&1
 
             echo $? >> results/parent/status.txt
           done
@@ -90,26 +81,23 @@ jobs:
       # ================= TARGET =================
       ####################################################
 
-      - name: Target build + test
+      - name: Build target
         run: |
-          cd $GITHUB_WORKSPACE
-
           git checkout $TARGET
 
-          chmod +x ./gradlew
+          gradle -I gradle/support/fetchDependencies.gradle init
 
-          ./gradlew -I gradle/support/fetchDependencies.gradle \
-            -DhideDownloadProgress -DnoEclipse
+          gradle buildGhidra
 
-          ./gradlew buildGhidra --parallel
-
+      - name: Run target tests
+        run: |
           mkdir -p results/target
+          git checkout $TARGET
 
           for i in {1..3}; do
             echo "TARGET RUN $i"
 
-            ./gradlew test --no-daemon \
-              > results/target/run_$i.log 2>&1
+            gradle test > results/target/run_$i.log 2>&1
 
             echo $? >> results/target/status.txt
           done
