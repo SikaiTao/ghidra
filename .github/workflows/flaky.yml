@@ -12,16 +12,15 @@ jobs:
     steps:
 
       ####################################################
-      # Checkout full history (CRITICAL)
+      # Checkout
       ####################################################
       - name: Checkout repo
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          fetch-tags: true
 
       ####################################################
-      # Setup JDK (match official CI)
+      # Setup JDK
       ####################################################
       - name: Setup JDK
         uses: actions/setup-java@v5
@@ -30,23 +29,19 @@ jobs:
           java-version: '21'
 
       ####################################################
-      # Prepare commits (FIXED parent resolution)
+      # Prepare commits
       ####################################################
       - name: Prepare commits
         run: |
+          cd $GITHUB_WORKSPACE
+
           TARGET=deec8bcf06803dcd08d22683354692c06530e468
 
           git fetch --all --tags
 
           echo "TARGET=$TARGET" >> $GITHUB_ENV
 
-          # robust parent resolution (NO rev-parse ^)
           PARENT=$(git log -n 1 --pretty=%P $TARGET | awk '{print $1}')
-
-          if [ -z "$PARENT" ]; then
-            echo "ERROR: Cannot resolve parent commit"
-            exit 1
-          fi
 
           echo "PARENT=$PARENT" >> $GITHUB_ENV
 
@@ -54,38 +49,32 @@ jobs:
           echo "PARENT=$PARENT"
 
       ####################################################
-      # Debug (verify repo correctness)
+      # DEBUG (VERY IMPORTANT)
       ####################################################
-      - name: Debug repo
+      - name: Debug
         run: |
+          cd $GITHUB_WORKSPACE
+          pwd
           ls -lah
           find . -name gradlew
-          git --no-pager log -1 --oneline $TARGET
 
       ####################################################
-      # Make gradlew executable
-      ####################################################
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
-      ####################################################
-      # ===================== PARENT =====================
+      # ================= PARENT =================
       ####################################################
 
-      - name: Checkout parent
-        run: git checkout $PARENT
-
-      - name: Fetch dependencies (parent)
+      - name: Parent build + test
         run: |
+          cd $GITHUB_WORKSPACE
+
+          git checkout $PARENT
+
+          chmod +x ./gradlew
+
           ./gradlew -I gradle/support/fetchDependencies.gradle \
             -DhideDownloadProgress -DnoEclipse
 
-      - name: Build parent
-        run: |
           ./gradlew buildGhidra --parallel
 
-      - name: Run parent tests repeatedly
-        run: |
           mkdir -p results/parent
 
           for i in {1..3}; do
@@ -98,23 +87,22 @@ jobs:
           done
 
       ####################################################
-      # ===================== TARGET =====================
+      # ================= TARGET =================
       ####################################################
 
-      - name: Checkout target
-        run: git checkout $TARGET
-
-      - name: Fetch dependencies (target)
+      - name: Target build + test
         run: |
+          cd $GITHUB_WORKSPACE
+
+          git checkout $TARGET
+
+          chmod +x ./gradlew
+
           ./gradlew -I gradle/support/fetchDependencies.gradle \
             -DhideDownloadProgress -DnoEclipse
 
-      - name: Build target
-        run: |
           ./gradlew buildGhidra --parallel
 
-      - name: Run target tests repeatedly
-        run: |
           mkdir -p results/target
 
           for i in {1..3}; do
@@ -127,7 +115,7 @@ jobs:
           done
 
       ####################################################
-      # Upload results
+      # Upload
       ####################################################
       - name: Upload results
         uses: actions/upload-artifact@v4
