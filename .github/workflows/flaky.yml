@@ -1,4 +1,4 @@
-name: Ghidra Flaky Commit Validator
+name: Flaky Commit Validator (Ghidra based)
 
 on:
   workflow_dispatch:
@@ -7,34 +7,31 @@ jobs:
   flaky-check:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 180
-
     steps:
+      ####################################################
+      # Checkout
+      ####################################################
+      - uses: actions/checkout@v6
 
       ####################################################
-      # Checkout repo into subfolder
+      # Detect JDK version
       ####################################################
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          path: ghidra
+      - name: Read Ghidra JDK Version
+        run: echo "JDK_VER=$(awk -F'=' '$1==\"application.java.min\" {print $2}' Ghidra/application.properties)" >> $GITHUB_ENV
 
       ####################################################
       # Setup JDK
       ####################################################
       - name: Setup JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 21
-          cache: gradle
+          java-version: '${{ env.JDK_VER }}'
 
       ####################################################
       # Prepare commits
       ####################################################
       - name: Prepare commits
-        working-directory: ghidra
         run: |
           TARGET=deec8bcf06803dcd08d22683354692c06530e468
 
@@ -47,87 +44,75 @@ jobs:
           echo "PARENT=$PARENT"
 
       ####################################################
-      # Debug repo structure
+      # Fetch dependencies
       ####################################################
-      - name: Debug structure
-        working-directory: ghidra
+      - name: Fetch Dependencies (parent)
         run: |
-          pwd
-          ls -lah
-          find . -maxdepth 2 -name gradlew
+          git checkout $PARENT
+          ./gradlew -I gradle/support/fetchDependencies.gradle -DhideDownloadProgress -DnoEclipse
 
       ####################################################
-      # Make gradlew executable
+      # Build parent
       ####################################################
-      - name: Make gradlew executable
-        working-directory: ghidra
-        run: chmod +x ./gradlew
-
-      ####################################################
-      # PARENT BUILD
-      ####################################################
-      - name: Checkout parent
-        working-directory: ghidra
-        run: git checkout $PARENT
-
       - name: Build parent
-        working-directory: ghidra
         run: |
-          ./gradlew clean build --no-daemon
+          git checkout $PARENT
+          ./gradlew buildGhidra --parallel
 
+      ####################################################
+      # Run parent tests (rerun)
+      ####################################################
       - name: Run parent tests repeatedly
-        working-directory: ghidra
         run: |
-          mkdir -p ../results/parent
+          mkdir -p results/parent
+
+          git checkout $PARENT
 
           for i in {1..3}; do
             echo "PARENT RUN $i"
 
             ./gradlew test --no-daemon \
-              > ../results/parent/run_$i.log 2>&1
+              > results/parent/run_$i.log 2>&1
 
-            echo $? >> ../results/parent/status.txt
+            echo $? >> results/parent/status.txt
           done
 
       ####################################################
-      # TARGET BUILD
+      # Fetch dependencies (target)
       ####################################################
-      - name: Checkout target
-        working-directory: ghidra
-        run: git checkout $TARGET
+      - name: Fetch Dependencies (target)
+        run: |
+          git checkout $TARGET
+          ./gradlew -I gradle/support/fetchDependencies.gradle -DhideDownloadProgress -DnoEclipse
 
+      ####################################################
+      # Build target
+      ####################################################
       - name: Build target
-        working-directory: ghidra
         run: |
-          ./gradlew clean build --no-daemon
+          git checkout $TARGET
+          ./gradlew buildGhidra --parallel
 
+      ####################################################
+      # Run target tests repeatedly
+      ####################################################
       - name: Run target tests repeatedly
-        working-directory: ghidra
         run: |
-          mkdir -p ../results/target
+          mkdir -p results/target
+
+          git checkout $TARGET
 
           for i in {1..3}; do
             echo "TARGET RUN $i"
 
             ./gradlew test --no-daemon \
-              > ../results/target/run_$i.log 2>&1
+              > results/target/run_$i.log 2>&1
 
-            echo $? >> ../results/target/status.txt
+            echo $? >> results/target/status.txt
           done
 
       ####################################################
-      # Compare results
-      ####################################################
-      - name: Compare results
-        run: |
-          echo "===== PARENT ====="
-          cat results/parent/status.txt || true
-
-          echo "===== TARGET ====="
-          cat results/target/status.txt || true
-
-      ####################################################
-      # Upload artifacts
+      # Upload results
       ####################################################
       - name: Upload results
         uses: actions/upload-artifact@v4
