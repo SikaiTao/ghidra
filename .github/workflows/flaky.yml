@@ -12,13 +12,16 @@ jobs:
     steps:
 
       ####################################################
-      # Checkout repo
+      # Checkout full history (CRITICAL)
       ####################################################
       - name: Checkout repo
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       ####################################################
-      # Setup JDK 
+      # Setup JDK (match official CI)
       ####################################################
       - name: Setup JDK
         uses: actions/setup-java@v5
@@ -27,28 +30,37 @@ jobs:
           java-version: '21'
 
       ####################################################
-      # Prepare commits
+      # Prepare commits (FIXED parent resolution)
       ####################################################
       - name: Prepare commits
         run: |
           TARGET=deec8bcf06803dcd08d22683354692c06530e468
 
+          git fetch --all --tags
+
           echo "TARGET=$TARGET" >> $GITHUB_ENV
 
-          PARENT=$(git rev-parse ${TARGET}^)
+          # robust parent resolution (NO rev-parse ^)
+          PARENT=$(git log -n 1 --pretty=%P $TARGET | awk '{print $1}')
+
+          if [ -z "$PARENT" ]; then
+            echo "ERROR: Cannot resolve parent commit"
+            exit 1
+          fi
+
           echo "PARENT=$PARENT" >> $GITHUB_ENV
 
-          echo "Target commit: $TARGET"
-          echo "Parent commit: $PARENT"
+          echo "TARGET=$TARGET"
+          echo "PARENT=$PARENT"
 
       ####################################################
-      # DEBUG (verify repo structure)
+      # Debug (verify repo correctness)
       ####################################################
-      - name: Debug repo structure
+      - name: Debug repo
         run: |
           ls -lah
-          find . -maxdepth 2 -name gradlew
-          find . -maxdepth 2 -name build.gradle
+          find . -name gradlew
+          git --no-pager log -1 --oneline $TARGET
 
       ####################################################
       # Make gradlew executable
@@ -57,30 +69,24 @@ jobs:
         run: chmod +x ./gradlew
 
       ####################################################
-      # PARENT: fetch dependencies
+      # ===================== PARENT =====================
       ####################################################
+
+      - name: Checkout parent
+        run: git checkout $PARENT
+
       - name: Fetch dependencies (parent)
         run: |
-          git checkout $PARENT
           ./gradlew -I gradle/support/fetchDependencies.gradle \
             -DhideDownloadProgress -DnoEclipse
 
-      ####################################################
-      # PARENT: build
-      ####################################################
       - name: Build parent
         run: |
-          git checkout $PARENT
           ./gradlew buildGhidra --parallel
 
-      ####################################################
-      # PARENT: rerun tests
-      ####################################################
       - name: Run parent tests repeatedly
         run: |
           mkdir -p results/parent
-
-          git checkout $PARENT
 
           for i in {1..3}; do
             echo "PARENT RUN $i"
@@ -92,30 +98,24 @@ jobs:
           done
 
       ####################################################
-      # TARGET: fetch dependencies
+      # ===================== TARGET =====================
       ####################################################
+
+      - name: Checkout target
+        run: git checkout $TARGET
+
       - name: Fetch dependencies (target)
         run: |
-          git checkout $TARGET
           ./gradlew -I gradle/support/fetchDependencies.gradle \
             -DhideDownloadProgress -DnoEclipse
 
-      ####################################################
-      # TARGET: build
-      ####################################################
       - name: Build target
         run: |
-          git checkout $TARGET
           ./gradlew buildGhidra --parallel
 
-      ####################################################
-      # TARGET: rerun tests
-      ####################################################
       - name: Run target tests repeatedly
         run: |
           mkdir -p results/target
-
-          git checkout $TARGET
 
           for i in {1..3}; do
             echo "TARGET RUN $i"
