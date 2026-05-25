@@ -1,4 +1,4 @@
-name: Flaky Commit Validator (Ghidra based)
+name: Ghidra Flaky Commit Validator
 
 on:
   workflow_dispatch:
@@ -7,26 +7,24 @@ jobs:
   flaky-check:
     runs-on: ubuntu-latest
 
+    timeout-minutes: 180
+
     steps:
-      ####################################################
-      # Checkout
-      ####################################################
-      - uses: actions/checkout@v6
 
       ####################################################
-      # Detect JDK version
+      # Checkout repo
       ####################################################
-      - name: Read Ghidra JDK Version
-        run: echo "JDK_VER=$(awk -F'=' '$1==\"application.java.min\" {print $2}' Ghidra/application.properties)" >> $GITHUB_ENV
+      - name: Checkout repo
+        uses: actions/checkout@v6
 
       ####################################################
-      # Setup JDK
+      # Setup JDK 
       ####################################################
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '${{ env.JDK_VER }}'
+          java-version: '21'
 
       ####################################################
       # Prepare commits
@@ -40,19 +38,35 @@ jobs:
           PARENT=$(git rev-parse ${TARGET}^)
           echo "PARENT=$PARENT" >> $GITHUB_ENV
 
-          echo "TARGET=$TARGET"
-          echo "PARENT=$PARENT"
+          echo "Target commit: $TARGET"
+          echo "Parent commit: $PARENT"
 
       ####################################################
-      # Fetch dependencies
+      # DEBUG (verify repo structure)
       ####################################################
-      - name: Fetch Dependencies (parent)
+      - name: Debug repo structure
+        run: |
+          ls -lah
+          find . -maxdepth 2 -name gradlew
+          find . -maxdepth 2 -name build.gradle
+
+      ####################################################
+      # Make gradlew executable
+      ####################################################
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      ####################################################
+      # PARENT: fetch dependencies
+      ####################################################
+      - name: Fetch dependencies (parent)
         run: |
           git checkout $PARENT
-          ./gradlew -I gradle/support/fetchDependencies.gradle -DhideDownloadProgress -DnoEclipse
+          ./gradlew -I gradle/support/fetchDependencies.gradle \
+            -DhideDownloadProgress -DnoEclipse
 
       ####################################################
-      # Build parent
+      # PARENT: build
       ####################################################
       - name: Build parent
         run: |
@@ -60,7 +74,7 @@ jobs:
           ./gradlew buildGhidra --parallel
 
       ####################################################
-      # Run parent tests (rerun)
+      # PARENT: rerun tests
       ####################################################
       - name: Run parent tests repeatedly
         run: |
@@ -78,15 +92,16 @@ jobs:
           done
 
       ####################################################
-      # Fetch dependencies (target)
+      # TARGET: fetch dependencies
       ####################################################
-      - name: Fetch Dependencies (target)
+      - name: Fetch dependencies (target)
         run: |
           git checkout $TARGET
-          ./gradlew -I gradle/support/fetchDependencies.gradle -DhideDownloadProgress -DnoEclipse
+          ./gradlew -I gradle/support/fetchDependencies.gradle \
+            -DhideDownloadProgress -DnoEclipse
 
       ####################################################
-      # Build target
+      # TARGET: build
       ####################################################
       - name: Build target
         run: |
@@ -94,7 +109,7 @@ jobs:
           ./gradlew buildGhidra --parallel
 
       ####################################################
-      # Run target tests repeatedly
+      # TARGET: rerun tests
       ####################################################
       - name: Run target tests repeatedly
         run: |
