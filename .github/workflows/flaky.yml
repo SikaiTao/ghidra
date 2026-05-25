@@ -12,15 +12,16 @@ jobs:
     steps:
 
       ####################################################
-      # Checkout FULL repo
+      # Checkout repo into subfolder
       ####################################################
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          path: ghidra
 
       ####################################################
-      # Setup Java (Ghidra = Java 21)
+      # Setup JDK
       ####################################################
       - name: Setup JDK
         uses: actions/setup-java@v4
@@ -30,11 +31,13 @@ jobs:
           cache: gradle
 
       ####################################################
-      # Commit setup
+      # Prepare commits
       ####################################################
       - name: Prepare commits
+        working-directory: ghidra
         run: |
           TARGET=deec8bcf06803dcd08d22683354692c06530e468
+
           echo "TARGET=$TARGET" >> $GITHUB_ENV
 
           PARENT=$(git rev-parse ${TARGET}^)
@@ -44,65 +47,87 @@ jobs:
           echo "PARENT=$PARENT"
 
       ####################################################
-      # IMPORTANT DEBUG: confirm gradlew exists
+      # Debug repo structure
       ####################################################
-      - name: Locate gradlew
+      - name: Debug structure
+        working-directory: ghidra
         run: |
-          echo "=== ROOT FILES ==="
+          pwd
           ls -lah
-
-          echo "=== FIND GRADLEW ==="
-          find . -name gradlew
+          find . -maxdepth 2 -name gradlew
 
       ####################################################
       # Make gradlew executable
       ####################################################
       - name: Make gradlew executable
-        run: |
-          chmod +x ./gradlew
+        working-directory: ghidra
+        run: chmod +x ./gradlew
 
       ####################################################
       # PARENT BUILD
       ####################################################
       - name: Checkout parent
+        working-directory: ghidra
         run: git checkout $PARENT
 
       - name: Build parent
+        working-directory: ghidra
         run: |
           ./gradlew clean build --no-daemon
 
-      - name: Run parent tests
+      - name: Run parent tests repeatedly
+        working-directory: ghidra
         run: |
-          mkdir -p results/parent
+          mkdir -p ../results/parent
 
           for i in {1..3}; do
+            echo "PARENT RUN $i"
+
             ./gradlew test --no-daemon \
-              > results/parent/run_$i.log 2>&1
-            echo $? >> results/parent/status.txt
+              > ../results/parent/run_$i.log 2>&1
+
+            echo $? >> ../results/parent/status.txt
           done
 
       ####################################################
       # TARGET BUILD
       ####################################################
       - name: Checkout target
+        working-directory: ghidra
         run: git checkout $TARGET
 
       - name: Build target
+        working-directory: ghidra
         run: |
           ./gradlew clean build --no-daemon
 
-      - name: Run target tests
+      - name: Run target tests repeatedly
+        working-directory: ghidra
         run: |
-          mkdir -p results/target
+          mkdir -p ../results/target
 
           for i in {1..3}; do
+            echo "TARGET RUN $i"
+
             ./gradlew test --no-daemon \
-              > results/target/run_$i.log 2>&1
-            echo $? >> results/target/status.txt
+              > ../results/target/run_$i.log 2>&1
+
+            echo $? >> ../results/target/status.txt
           done
 
       ####################################################
-      # Upload results
+      # Compare results
+      ####################################################
+      - name: Compare results
+        run: |
+          echo "===== PARENT ====="
+          cat results/parent/status.txt || true
+
+          echo "===== TARGET ====="
+          cat results/target/status.txt || true
+
+      ####################################################
+      # Upload artifacts
       ####################################################
       - name: Upload results
         uses: actions/upload-artifact@v4
